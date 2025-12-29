@@ -37,7 +37,7 @@ fn main() {
             3 => view_scoreboard(&scoreboard),
             4 => {
                 scoreboard.save();
-                println!("\nBye!");
+                println!("\nGoodbye.");
                 break;
             }
             _ => {}
@@ -47,7 +47,7 @@ fn main() {
 
 fn banner() {
     println!("==============================");
-    println!("      ROCK - PAPER - SCISSORS ");
+    println!("   Rock, Paper, Scissors   ");
     println!("==============================\n");
 }
 
@@ -286,9 +286,9 @@ fn view_scoreboard(scoreboard: &Scoreboard) {
         }
 
         println!("Scoreboard");
-        println!("1) Sort by Matches Won");
-        println!("2) Sort by Win Rate");
-        println!("3) Sort by Rounds Won");
+        println!("1) Sort by matches won");
+        println!("2) Sort by win rate");
+        println!("3) Sort by rounds won");
         println!("4) Back");
 
         let choice = read_menu_choice(1, 4);
@@ -351,7 +351,7 @@ fn new_game_setup() -> GameConfig {
     };
 
     println!("\nChoose mode:");
-    println!("1) Single Player");
+    println!("1) Single player");
     println!("2) Multiplayer");
     let mode = match read_menu_choice(1, 2) {
         1 => Mode::SinglePlayer,
