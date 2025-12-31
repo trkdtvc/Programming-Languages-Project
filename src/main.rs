@@ -27,8 +27,12 @@ fn main() {
                 let mut state = MatchState::new(config);
                 run_match(&mut state, &mut scoreboard);
             }
-            2 => match MatchState::load() {
-                Ok(mut state) => run_match(&mut state, &mut scoreboard),
+            2 => match load_saved_game() {
+                Ok((mut state, saved_board)) => {
+                    scoreboard = saved_board;
+                    scoreboard.save();
+                    run_match(&mut state, &mut scoreboard);
+                }
                 Err(_) => {
                     println!("\nNo saved game found.");
                     pause();
@@ -47,7 +51,7 @@ fn main() {
 
 fn banner() {
     println!("==============================");
-    println!("    Rock, Paper, Scissors   ");
+    println!("    Rock, Paper, Scissors     ");
     println!("==============================\n");
 }
 
@@ -98,6 +102,31 @@ fn read_yes_no(prompt: &str, default_yes: bool) -> bool {
             _ => println!("Please type y or n."),
         }
     }
+}
+
+fn should_use_color() -> bool {
+    std::env::var("NO_COLOR").is_err()
+}
+
+fn colorize(s: &str, code: &str, use_color: bool) -> String {
+    if use_color && should_use_color() {
+        format!("\x1b[{}m{}\x1b[0m", code, s)
+    } else {
+        s.to_string()
+    }
+}
+
+fn green(s: &str, use_color: bool) -> String {
+    colorize(s, "32", use_color)
+}
+fn red(s: &str, use_color: bool) -> String {
+    colorize(s, "31", use_color)
+}
+fn yellow(s: &str, use_color: bool) -> String {
+    colorize(s, "33", use_color)
+}
+fn cyan(s: &str, use_color: bool) -> String {
+    colorize(s, "36", use_color)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -204,7 +233,7 @@ fn ascii_move(mv: Move) -> &'static str {
    |   .-"""-. |
    |  /  _ _  \|
     \ | | | | |
-     \| |_| |_|/
+     \| |_| |_||
        \       /
         `-.__.-'
 "#,
@@ -253,19 +282,12 @@ impl MatchState {
         }
     }
 
-    fn save(&self) {
-        if let Ok(json) = serde_json::to_string_pretty(self) {
-            let _ = fs::write(SAVE_FILE, json);
-        }
-    }
-
-    fn load() -> Result<Self, ()> {
-        let data = fs::read_to_string(SAVE_FILE).map_err(|_| ())?;
-        serde_json::from_str(&data).map_err(|_| ())
-    }
-
-    fn clear_saved() {
-        let _ = fs::remove_file(SAVE_FILE);
+    fn reset_for_rematch(&mut self) {
+        self.round_number = 0;
+        self.p1_round_wins = 0;
+        self.p2_round_wins = 0;
+        self.history.clear();
+        self.human_recent.clear();
     }
 }
 
@@ -329,6 +351,32 @@ impl Scoreboard {
             }
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SaveData {
+    state: MatchState,
+    scoreboard: Scoreboard,
+}
+
+fn save_game(state: &MatchState, scoreboard: &Scoreboard) {
+    let data = SaveData {
+        state: state.clone(),
+        scoreboard: scoreboard.clone(),
+    };
+    if let Ok(json) = serde_json::to_string_pretty(&data) {
+        let _ = fs::write(SAVE_FILE, json);
+    }
+}
+
+fn load_saved_game() -> Result<(MatchState, Scoreboard), ()> {
+    let data = fs::read_to_string(SAVE_FILE).map_err(|_| ())?;
+    let sd: SaveData = serde_json::from_str(&data).map_err(|_| ())?;
+    Ok((sd.state, sd.scoreboard))
+}
+
+fn clear_saved_game() {
+    let _ = fs::remove_file(SAVE_FILE);
 }
 
 fn view_scoreboard(scoreboard: &Scoreboard) {
@@ -495,10 +543,6 @@ fn new_game_setup() -> GameConfig {
     }
 }
 
-fn should_use_color() -> bool {
-    std::env::var("NO_COLOR").is_err()
-}
-
 fn run_match(state: &mut MatchState, scoreboard: &mut Scoreboard) {
     scoreboard.ensure_player(&state.config.player1);
     scoreboard.ensure_player(&state.config.player2);
@@ -552,7 +596,7 @@ fn run_match(state: &mut MatchState, scoreboard: &mut Scoreboard) {
             continue;
         }
         if opt == 3 {
-            state.save();
+            save_game(state, scoreboard);
             scoreboard.save();
             return;
         }
@@ -580,11 +624,118 @@ fn run_match(state: &mut MatchState, scoreboard: &mut Scoreboard) {
                 state.p2_round_wins,
             );
             scoreboard.save();
-            MatchState::clear_saved();
-            pause();
-            return;
+            clear_saved_game();
+
+            loop {
+                println!("\nAfter match:");
+                println!("1) Rematch (same settings)");
+                println!("2) Change ruleset / format (then rematch)");
+                if matches!(state.config.mode, Mode::SinglePlayer) {
+                    println!("3) Change difficulty (then rematch)");
+                    println!("4) Return to main menu");
+                    let c = read_menu_choice(1, 4);
+                    match c {
+                        1 => {
+                            state.reset_for_rematch();
+                            break;
+                        }
+                        2 => {
+                            change_ruleset_and_format(&mut state.config);
+                            state.reset_for_rematch();
+                            break;
+                        }
+                        3 => {
+                            change_difficulty(&mut state.config);
+                            state.reset_for_rematch();
+                            break;
+                        }
+                        4 => return,
+                        _ => {}
+                    }
+                } else {
+                    println!("3) Return to main menu");
+                    let c = read_menu_choice(1, 3);
+                    match c {
+                        1 => {
+                            state.reset_for_rematch();
+                            break;
+                        }
+                        2 => {
+                            change_ruleset_and_format(&mut state.config);
+                            state.reset_for_rematch();
+                            break;
+                        }
+                        3 => return,
+                        _ => {}
+                    }
+                }
+            }
         }
     }
+}
+
+fn change_ruleset_and_format(cfg: &mut GameConfig) {
+    clear_screen();
+    banner();
+
+    println!("Change ruleset:");
+    println!("1) Classic");
+    println!("2) Extended");
+    cfg.ruleset = match read_menu_choice(1, 2) {
+        1 => Ruleset::Classic,
+        _ => Ruleset::Extended,
+    };
+
+    println!("\nChange match format:");
+    println!("1) Single round");
+    println!("2) Best of N");
+    println!("3) First to K wins");
+    cfg.format = match read_menu_choice(1, 3) {
+        1 => MatchFormat::SingleRound,
+        2 => {
+            let n = loop {
+                let s = read_line("Enter N (odd number >= 1): ");
+                if let Ok(v) = s.parse::<u32>() {
+                    if v >= 1 && v % 2 == 1 {
+                        break v;
+                    }
+                }
+                println!("Invalid.");
+            };
+            MatchFormat::BestOfN(n)
+        }
+        _ => {
+            let k = loop {
+                let s = read_line("Enter K (>= 1): ");
+                if let Ok(v) = s.parse::<u32>() {
+                    if v >= 1 {
+                        break v;
+                    }
+                }
+                println!("Invalid.");
+            };
+            MatchFormat::FirstToK(k)
+        }
+    };
+
+    cfg.use_color = should_use_color() && read_yes_no("\nUse colors?", cfg.use_color);
+    cfg.show_ascii = read_yes_no("Show ASCII graphics?", cfg.show_ascii);
+}
+
+fn change_difficulty(cfg: &mut GameConfig) {
+    clear_screen();
+    banner();
+
+    println!("Change difficulty:");
+    println!("1) Easy");
+    println!("2) Normal");
+    println!("3) Hard");
+    let diff = match read_menu_choice(1, 3) {
+        1 => Difficulty::Easy,
+        2 => Difficulty::Normal,
+        _ => Difficulty::Hard,
+    };
+    cfg.difficulty = Some(diff);
 }
 
 fn print_match_header(state: &MatchState) {
@@ -615,10 +766,39 @@ fn print_match_header(state: &MatchState) {
         println!("Difficulty: {}", ds);
     }
 
-    println!(
-        "\nScore: {} {} - {} {}",
+    println!();
+
+    let score_line = format!(
+        "Score: {} {} - {} {}",
         cfg.player1, state.p1_round_wins, state.p2_round_wins, cfg.player2
     );
+    println!("{}", cyan(&score_line, cfg.use_color));
+
+    match cfg.format {
+        MatchFormat::SingleRound => {
+            println!("This is the only round.\n");
+        }
+        MatchFormat::BestOfN(n) => {
+            let needed = n / 2 + 1;
+            let p1_left = needed.saturating_sub(state.p1_round_wins);
+            let p2_left = needed.saturating_sub(state.p2_round_wins);
+            println!("Wins needed: {}", needed);
+            println!(
+                "Wins to go: {} needs {}, {} needs {}\n",
+                cfg.player1, p1_left, cfg.player2, p2_left
+            );
+        }
+        MatchFormat::FirstToK(k) => {
+            let p1_left = k.saturating_sub(state.p1_round_wins);
+            let p2_left = k.saturating_sub(state.p2_round_wins);
+            println!("Target wins: {}", k);
+            println!(
+                "Wins to go: {} needs {}, {} needs {}\n",
+                cfg.player1, p1_left, cfg.player2, p2_left
+            );
+        }
+    }
+
     println!("Round: {}\n", state.round_number + 1);
 }
 
@@ -637,19 +817,44 @@ fn print_round_summary(state: &MatchState, p1: Move, p2: Move, winner: RoundWinn
         println!("{}", ascii_move(p2));
     }
 
-    println!(
-        "\n{}",
-        match winner {
-            RoundWinner::Tie => "===== TIE ROUND =====".to_string(),
-            RoundWinner::Player1 => format!("===== {} WINS =====", cfg.player1),
-            RoundWinner::Player2 => format!("===== {} WINS =====", cfg.player2),
-        }
-    );
+    let banner_line = match winner {
+        RoundWinner::Tie => yellow("===== TIE ROUND =====", cfg.use_color),
+        RoundWinner::Player1 => green(&format!("===== {} WINS =====", cfg.player1), cfg.use_color),
+        RoundWinner::Player2 => green(&format!("===== {} WINS =====", cfg.player2), cfg.use_color),
+    };
+    println!("\n{}", banner_line);
 
     println!(
         "\nCurrent Score: {} {} - {} {}",
         cfg.player1, state.p1_round_wins, state.p2_round_wins, cfg.player2
     );
+
+    match cfg.format {
+        MatchFormat::SingleRound => {}
+        MatchFormat::BestOfN(n) => {
+            let needed = n / 2 + 1;
+            let p1_left = needed.saturating_sub(state.p1_round_wins);
+            let p2_left = needed.saturating_sub(state.p2_round_wins);
+            println!(
+                "Wins to go: {} {}, {} {}",
+                cfg.player1,
+                p1_left,
+                cfg.player2,
+                p2_left
+            );
+        }
+        MatchFormat::FirstToK(k) => {
+            let p1_left = k.saturating_sub(state.p1_round_wins);
+            let p2_left = k.saturating_sub(state.p2_round_wins);
+            println!(
+                "Wins to go: {} {}, {} {}",
+                cfg.player1,
+                p1_left,
+                cfg.player2,
+                p2_left
+            );
+        }
+    }
 }
 
 fn view_match_history(state: &MatchState) {
@@ -681,15 +886,16 @@ fn show_victory(state: &MatchState, winner: RoundWinner) {
     println!("Match Complete!\n");
 
     match winner {
-        RoundWinner::Tie => println!("It ended in a tie."),
-        RoundWinner::Player1 => println!("Winner: {}", cfg.player1),
-        RoundWinner::Player2 => println!("Winner: {}", cfg.player2),
+        RoundWinner::Tie => println!("{}", yellow("It ended in a tie.", cfg.use_color)),
+        RoundWinner::Player1 => println!("{}", green(&format!("Winner: {}", cfg.player1), cfg.use_color)),
+        RoundWinner::Player2 => println!("{}", green(&format!("Winner: {}", cfg.player2), cfg.use_color)),
     }
 
-    println!(
-        "\nFinal Score: {} {} - {} {}",
+    let final_score = format!(
+        "Final Score: {} {} - {} {}",
         cfg.player1, state.p1_round_wins, state.p2_round_wins, cfg.player2
     );
+    println!("\n{}", cyan(&final_score, cfg.use_color));
 }
 
 fn check_match_winner(state: &MatchState) -> Option<RoundWinner> {
