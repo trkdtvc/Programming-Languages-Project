@@ -268,10 +268,22 @@ struct MatchState {
     p2_round_wins: u32,
     history: Vec<RoundRecord>,
     human_recent: Vec<Move>,
+    turn: Turn,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+enum Turn {
+    WaitingP1,
+    WaitingP2,
+    Reveal,
 }
 
 impl MatchState {
     fn new(config: GameConfig) -> Self {
+        let turn = match config.mode {
+            Mode::SinglePlayer => Turn::WaitingP1,
+            Mode::Multiplayer => Turn::WaitingP1,
+        };
         Self {
             config,
             round_number: 0,
@@ -279,6 +291,7 @@ impl MatchState {
             p2_round_wins: 0,
             history: vec![],
             human_recent: vec![],
+            turn,
         }
     }
 
@@ -288,6 +301,7 @@ impl MatchState {
         self.p2_round_wins = 0;
         self.history.clear();
         self.human_recent.clear();
+        self.turn = Turn::WaitingP1;
     }
 }
 
@@ -423,7 +437,10 @@ fn view_scoreboard(scoreboard: &Scoreboard) {
 
         clear_screen();
         banner();
-        println!("{:<20} {:>6} {:>6} {:>8} {:>10}", "Player", "MP", "MW", "RW", "WinRate");
+        println!(
+            "{:<20} {:>6} {:>6} {:>8} {:>10}",
+            "Player", "MP", "MW", "RW", "WinRate"
+        );
         println!("{}", "-".repeat(56));
 
         for (name, st, wr) in rows {
@@ -547,46 +564,160 @@ fn run_match(state: &mut MatchState, scoreboard: &mut Scoreboard) {
     scoreboard.ensure_player(&state.config.player1);
     scoreboard.ensure_player(&state.config.player2);
 
+    let mut pending_p1: Option<Move> = None;
+    let mut pending_p2: Option<Move> = None;
+
     loop {
         clear_screen();
         banner();
         print_match_header(state);
 
-        state.round_number += 1;
-
-        let p1_move = match state.config.mode {
-            Mode::SinglePlayer => read_move_player(&state.config.player1, state.config.ruleset),
-            Mode::Multiplayer => read_move_hidden(&state.config.player1, state.config.ruleset),
-        };
-
-        let p2_move = match state.config.mode {
-            Mode::SinglePlayer => ai_move(state, p1_move),
-            Mode::Multiplayer => read_move_hidden(&state.config.player2, state.config.ruleset),
-        };
-
-        let winner = decide_winner(state.config.ruleset, p1_move, p2_move);
-
-        match winner {
-            RoundWinner::Player1 => state.p1_round_wins += 1,
-            RoundWinner::Player2 => state.p2_round_wins += 1,
-            RoundWinner::Tie => {}
+        println!("Quick actions:");
+        println!("1) Continue");
+        println!("2) Save now (return to main menu)");
+        println!("3) Return to main menu without saving");
+        let pre = read_menu_choice(1, 3);
+        if pre == 2 {
+            save_game(state, scoreboard);
+            scoreboard.save();
+            return;
+        }
+        if pre == 3 {
+            scoreboard.save();
+            return;
         }
 
-        state.history.push(RoundRecord {
-            round: state.round_number,
-            p1_move,
-            p2_move,
-            winner,
-        });
+        if pending_p1.is_none() && pending_p2.is_none() {
+            state.round_number += 1;
+            state.turn = Turn::WaitingP1;
+        }
 
-        clear_screen();
-        banner();
-        print_round_summary(state, p1_move, p2_move, winner);
+        match state.config.mode {
+            Mode::SinglePlayer => {
+                let p1 = loop {
+                    clear_screen();
+                    banner();
+                    print_match_header(state);
+                    println!("Type 'save' to save now and return to menu.");
+                    match read_move_player_or_save(&state.config.player1, state.config.ruleset) {
+                        MoveOrSave::Save => {
+                            save_game(state, scoreboard);
+                            scoreboard.save();
+                            return;
+                        }
+                        MoveOrSave::Move(mv) => break mv,
+                    }
+                };
 
+                let p2 = ai_move(state, p1);
+
+                let winner = decide_winner(state.config.ruleset, p1, p2);
+                apply_round(state, p1, p2, winner);
+
+                clear_screen();
+                banner();
+                print_round_summary(state, p1, p2, winner);
+
+                if let Some(match_winner) = check_match_winner(state) {
+                    handle_match_end(state, scoreboard, match_winner);
+                    continue;
+                }
+
+                after_round_menu(state, scoreboard);
+            }
+            Mode::Multiplayer => {
+                if pending_p1.is_none() {
+                    clear_screen();
+                    banner();
+                    println!("{}'s turn", state.config.player1);
+                    println!("Accepted inputs: {}", accepted_inputs_line(state.config.ruleset));
+                    println!("Type 'save' to save now and return to menu.");
+                    match read_move_hidden_or_save(&state.config.player1, state.config.ruleset) {
+                        MoveOrSave::Save => {
+                            save_game(state, scoreboard);
+                            scoreboard.save();
+                            return;
+                        }
+                        MoveOrSave::Move(mv) => {
+                            pending_p1 = Some(mv);
+                            state.turn = Turn::WaitingP2;
+                            clear_screen();
+                            banner();
+                            println!("{} locked in.", state.config.player1);
+                            println!("Pass to {}.", state.config.player2);
+                            pause();
+                        }
+                    }
+                }
+
+                if pending_p2.is_none() {
+                    clear_screen();
+                    banner();
+                    println!("{}'s turn", state.config.player2);
+                    println!("Accepted inputs: {}", accepted_inputs_line(state.config.ruleset));
+                    println!("Type 'save' to save now and return to menu.");
+                    match read_move_hidden_or_save(&state.config.player2, state.config.ruleset) {
+                        MoveOrSave::Save => {
+                            save_game(state, scoreboard);
+                            scoreboard.save();
+                            return;
+                        }
+                        MoveOrSave::Move(mv) => {
+                            pending_p2 = Some(mv);
+                            state.turn = Turn::Reveal;
+                            clear_screen();
+                            banner();
+                            println!("{} locked in.", state.config.player2);
+                            println!("Both moves are locked in. Reveal now.");
+                            pause();
+                        }
+                    }
+                }
+
+                if let (Some(p1), Some(p2)) = (pending_p1, pending_p2) {
+                    let winner = decide_winner(state.config.ruleset, p1, p2);
+                    apply_round(state, p1, p2, winner);
+
+                    clear_screen();
+                    banner();
+                    print_round_summary(state, p1, p2, winner);
+
+                    pending_p1 = None;
+                    pending_p2 = None;
+
+                    if let Some(match_winner) = check_match_winner(state) {
+                        handle_match_end(state, scoreboard, match_winner);
+                        continue;
+                    }
+
+                    after_round_menu(state, scoreboard);
+                }
+            }
+        }
+    }
+}
+
+fn apply_round(state: &mut MatchState, p1: Move, p2: Move, winner: RoundWinner) {
+    match winner {
+        RoundWinner::Player1 => state.p1_round_wins += 1,
+        RoundWinner::Player2 => state.p2_round_wins += 1,
+        RoundWinner::Tie => {}
+    }
+
+    state.history.push(RoundRecord {
+        round: state.round_number,
+        p1_move: p1,
+        p2_move: p2,
+        winner,
+    });
+}
+
+fn after_round_menu(state: &MatchState, scoreboard: &mut Scoreboard) {
+    loop {
         println!("\nOptions:");
         println!("1) Next round");
         println!("2) View match history");
-        println!("3) Save and return to main menu");
+        println!("3) Save now (return to main menu)");
         println!("4) Return to main menu without saving");
 
         let opt = read_menu_choice(1, 4);
@@ -604,71 +735,72 @@ fn run_match(state: &mut MatchState, scoreboard: &mut Scoreboard) {
             scoreboard.save();
             return;
         }
+        break;
+    }
+}
 
-        if let Some(match_winner) = check_match_winner(state) {
-            clear_screen();
-            banner();
-            show_victory(state, match_winner);
+fn handle_match_end(state: &mut MatchState, scoreboard: &mut Scoreboard, match_winner: RoundWinner) {
+    clear_screen();
+    banner();
+    show_victory(state, match_winner);
 
-            let winner_name = match match_winner {
-                RoundWinner::Player1 => Some(state.config.player1.as_str()),
-                RoundWinner::Player2 => Some(state.config.player2.as_str()),
-                RoundWinner::Tie => None,
-            };
+    let winner_name = match match_winner {
+        RoundWinner::Player1 => Some(state.config.player1.as_str()),
+        RoundWinner::Player2 => Some(state.config.player2.as_str()),
+        RoundWinner::Tie => None,
+    };
 
-            scoreboard.add_match_result(
-                &state.config.player1,
-                &state.config.player2,
-                winner_name,
-                state.p1_round_wins,
-                state.p2_round_wins,
-            );
-            scoreboard.save();
-            clear_saved_game();
+    scoreboard.add_match_result(
+        &state.config.player1,
+        &state.config.player2,
+        winner_name,
+        state.p1_round_wins,
+        state.p2_round_wins,
+    );
+    scoreboard.save();
+    clear_saved_game();
 
-            loop {
-                println!("\nAfter match:");
-                println!("1) Rematch (same settings)");
-                println!("2) Change ruleset / format (then rematch)");
-                if matches!(state.config.mode, Mode::SinglePlayer) {
-                    println!("3) Change difficulty (then rematch)");
-                    println!("4) Return to main menu");
-                    let c = read_menu_choice(1, 4);
-                    match c {
-                        1 => {
-                            state.reset_for_rematch();
-                            break;
-                        }
-                        2 => {
-                            change_ruleset_and_format(&mut state.config);
-                            state.reset_for_rematch();
-                            break;
-                        }
-                        3 => {
-                            change_difficulty(&mut state.config);
-                            state.reset_for_rematch();
-                            break;
-                        }
-                        4 => return,
-                        _ => {}
-                    }
-                } else {
-                    println!("3) Return to main menu");
-                    let c = read_menu_choice(1, 3);
-                    match c {
-                        1 => {
-                            state.reset_for_rematch();
-                            break;
-                        }
-                        2 => {
-                            change_ruleset_and_format(&mut state.config);
-                            state.reset_for_rematch();
-                            break;
-                        }
-                        3 => return,
-                        _ => {}
-                    }
+    loop {
+        println!("\nAfter match:");
+        println!("1) Rematch (same settings)");
+        println!("2) Change ruleset / format (then rematch)");
+        if matches!(state.config.mode, Mode::SinglePlayer) {
+            println!("3) Change difficulty (then rematch)");
+            println!("4) Return to main menu");
+            let c = read_menu_choice(1, 4);
+            match c {
+                1 => {
+                    state.reset_for_rematch();
+                    break;
                 }
+                2 => {
+                    change_ruleset_and_format(&mut state.config);
+                    state.reset_for_rematch();
+                    break;
+                }
+                3 => {
+                    change_difficulty(&mut state.config);
+                    state.reset_for_rematch();
+                    break;
+                }
+                4 => return,
+                _ => {}
+            }
+        } else {
+            println!("3) Return to main menu");
+            let c = read_menu_choice(1, 3);
+            match c {
+                1 => {
+                    state.reset_for_rematch();
+                    break;
+                }
+                2 => {
+                    change_ruleset_and_format(&mut state.config);
+                    state.reset_for_rematch();
+                    break;
+                }
+                3 => return,
+                _ => {}
             }
         }
     }
@@ -824,6 +956,22 @@ fn print_round_summary(state: &MatchState, p1: Move, p2: Move, winner: RoundWinn
     };
     println!("\n{}", banner_line);
 
+    let p1_result = match winner {
+        RoundWinner::Player1 => green("WIN", cfg.use_color),
+        RoundWinner::Player2 => red("LOSS", cfg.use_color),
+        RoundWinner::Tie => yellow("TIE", cfg.use_color),
+    };
+    let p2_result = match winner {
+        RoundWinner::Player2 => green("WIN", cfg.use_color),
+        RoundWinner::Player1 => red("LOSS", cfg.use_color),
+        RoundWinner::Tie => yellow("TIE", cfg.use_color),
+    };
+
+    println!(
+        "{}: {}   |   {}: {}",
+        cfg.player1, p1_result, cfg.player2, p2_result
+    );
+
     println!(
         "\nCurrent Score: {} {} - {} {}",
         cfg.player1, state.p1_round_wins, state.p2_round_wins, cfg.player2
@@ -837,10 +985,7 @@ fn print_round_summary(state: &MatchState, p1: Move, p2: Move, winner: RoundWinn
             let p2_left = needed.saturating_sub(state.p2_round_wins);
             println!(
                 "Wins to go: {} {}, {} {}",
-                cfg.player1,
-                p1_left,
-                cfg.player2,
-                p2_left
+                cfg.player1, p1_left, cfg.player2, p2_left
             );
         }
         MatchFormat::FirstToK(k) => {
@@ -848,10 +993,7 @@ fn print_round_summary(state: &MatchState, p1: Move, p2: Move, winner: RoundWinn
             let p2_left = k.saturating_sub(state.p2_round_wins);
             println!(
                 "Wins to go: {} {}, {} {}",
-                cfg.player1,
-                p1_left,
-                cfg.player2,
-                p2_left
+                cfg.player1, p1_left, cfg.player2, p2_left
             );
         }
     }
@@ -930,28 +1072,35 @@ fn accepted_inputs_line(ruleset: Ruleset) -> &'static str {
     }
 }
 
-fn read_move_player(player_name: &str, ruleset: Ruleset) -> Move {
+enum MoveOrSave {
+    Move(Move),
+    Save,
+}
+
+fn parse_move_or_save(input: &str, ruleset: Ruleset) -> Option<MoveOrSave> {
+    let t = input.trim().to_lowercase();
+    if t == "save" || t == "sv" {
+        return Some(MoveOrSave::Save);
+    }
+    parse_move(&t, ruleset).map(MoveOrSave::Move)
+}
+
+fn read_move_player_or_save(player_name: &str, ruleset: Ruleset) -> MoveOrSave {
     loop {
         println!("Accepted inputs: {}", accepted_inputs_line(ruleset));
         let s = read_line(&format!("{} move: ", player_name));
-        if let Some(mv) = parse_move(&s, ruleset) {
-            return mv;
+        if let Some(v) = parse_move_or_save(&s, ruleset) {
+            return v;
         }
         println!("Invalid move.");
     }
 }
 
-fn read_move_hidden(player_name: &str, ruleset: Ruleset) -> Move {
-    clear_screen();
-    banner();
-
-    println!("{}'s turn", player_name);
-    println!("Accepted inputs: {}", accepted_inputs_line(ruleset));
-
+fn read_move_hidden_or_save(_player_name: &str, ruleset: Ruleset) -> MoveOrSave {
     loop {
         let s = read_password().unwrap_or_default();
-        if let Some(mv) = parse_move(&s, ruleset) {
-            return mv;
+        if let Some(v) = parse_move_or_save(&s, ruleset) {
+            return v;
         }
         println!("Invalid move.");
     }
