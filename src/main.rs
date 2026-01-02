@@ -89,44 +89,21 @@ fn read_menu_choice(min: i32, max: i32) -> i32 {
     }
 }
 
-fn read_yes_no(prompt: &str, default_yes: bool) -> bool {
-    loop {
-        let hint = if default_yes { "[Y/n]" } else { "[y/N]" };
-        let s = read_line(&format!("{} {} ", prompt, hint)).to_lowercase();
-        if s.is_empty() {
-            return default_yes;
-        }
-        match s.as_str() {
-            "y" | "yes" => return true,
-            "n" | "no" => return false,
-            _ => println!("Please type y or n."),
-        }
-    }
+fn colorize(s: &str, code: &str) -> String {
+    format!("\x1b[{}m{}\x1b[0m", code, s)
 }
 
-fn should_use_color() -> bool {
-    std::env::var("NO_COLOR").is_err()
+fn green(s: &str) -> String {
+    colorize(s, "32")
 }
-
-fn colorize(s: &str, code: &str, use_color: bool) -> String {
-    if use_color && should_use_color() {
-        format!("\x1b[{}m{}\x1b[0m", code, s)
-    } else {
-        s.to_string()
-    }
+fn red(s: &str) -> String {
+    colorize(s, "31")
 }
-
-fn green(s: &str, use_color: bool) -> String {
-    colorize(s, "32", use_color)
+fn yellow(s: &str) -> String {
+    colorize(s, "33")
 }
-fn red(s: &str, use_color: bool) -> String {
-    colorize(s, "31", use_color)
-}
-fn yellow(s: &str, use_color: bool) -> String {
-    colorize(s, "33", use_color)
-}
-fn cyan(s: &str, use_color: bool) -> String {
-    colorize(s, "36", use_color)
+fn cyan(s: &str) -> String {
+    colorize(s, "36")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -163,8 +140,6 @@ struct GameConfig {
     ruleset: Ruleset,
     format: MatchFormat,
     difficulty: Option<Difficulty>,
-    use_color: bool,
-    show_ascii: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -545,9 +520,6 @@ fn new_game_setup() -> GameConfig {
         }
     };
 
-    let use_color = should_use_color() && read_yes_no("\nUse colors?", true);
-    let show_ascii = read_yes_no("Show ASCII graphics?", true);
-
     GameConfig {
         player1,
         player2,
@@ -555,8 +527,6 @@ fn new_game_setup() -> GameConfig {
         ruleset,
         format,
         difficulty,
-        use_color,
-        show_ascii,
     }
 }
 
@@ -612,17 +582,16 @@ fn run_match(state: &mut MatchState, scoreboard: &mut Scoreboard) {
 
                 let winner = decide_winner(state.config.ruleset, p1, p2);
                 apply_round(state, p1, p2, winner);
-                
+
                 clear_screen();
                 banner();
                 print_round_summary(state, p1, p2, winner);
-                
-                if let Some(match_winner) = check_match_winner(state) {
-                pause();
-                handle_match_end(state, scoreboard, match_winner);
-                continue;
-            }
 
+                if let Some(match_winner) = check_match_winner(state) {
+                    pause();
+                    handle_match_end(state, scoreboard, match_winner);
+                    continue;
+                }
 
                 after_round_menu(state, scoreboard);
                 state.round_number += 1;
@@ -679,20 +648,19 @@ fn run_match(state: &mut MatchState, scoreboard: &mut Scoreboard) {
                 if let (Some(p1), Some(p2)) = (pending_p1, pending_p2) {
                     let winner = decide_winner(state.config.ruleset, p1, p2);
                     apply_round(state, p1, p2, winner);
-                    
+
                     clear_screen();
                     banner();
                     print_round_summary(state, p1, p2, winner);
-                    
+
                     pending_p1 = None;
                     pending_p2 = None;
-                    
+
                     if let Some(match_winner) = check_match_winner(state) {
-                        pause(); 
+                        pause();
                         handle_match_end(state, scoreboard, match_winner);
                         continue;
                     }
-
 
                     after_round_menu(state, scoreboard);
                     state.round_number += 1;
@@ -854,9 +822,6 @@ fn change_ruleset_and_format(cfg: &mut GameConfig) {
             MatchFormat::FirstToK(k)
         }
     };
-
-    cfg.use_color = should_use_color() && read_yes_no("\nUse colors?", cfg.use_color);
-    cfg.show_ascii = read_yes_no("Show ASCII graphics?", cfg.show_ascii);
 }
 
 fn change_difficulty(cfg: &mut GameConfig) {
@@ -909,7 +874,7 @@ fn print_match_header(state: &MatchState) {
         "Score: {} {} - {} {}",
         cfg.player1, state.p1_round_wins, state.p2_round_wins, cfg.player2
     );
-    println!("{}", cyan(&score_line, cfg.use_color));
+    println!("{}", cyan(&score_line));
 
     match cfg.format {
         MatchFormat::SingleRound => {
@@ -945,31 +910,27 @@ fn print_round_summary(state: &MatchState, p1: Move, p2: Move, winner: RoundWinn
     println!("Round {}", state.round_number);
 
     println!("{} chose: {}", cfg.player1, p1.name());
-    if cfg.show_ascii {
-        println!("{}", ascii_move(p1));
-    }
+    println!("{}", ascii_move(p1));
 
     println!("{} chose: {}", cfg.player2, p2.name());
-    if cfg.show_ascii {
-        println!("{}", ascii_move(p2));
-    }
+    println!("{}", ascii_move(p2));
 
     let banner_line = match winner {
-        RoundWinner::Tie => yellow("===== TIE ROUND =====", cfg.use_color),
-        RoundWinner::Player1 => green(&format!("===== {} WINS =====", cfg.player1), cfg.use_color),
-        RoundWinner::Player2 => green(&format!("===== {} WINS =====", cfg.player2), cfg.use_color),
+        RoundWinner::Tie => yellow("===== TIE ROUND ====="),
+        RoundWinner::Player1 => green(&format!("===== {} WINS =====", cfg.player1)),
+        RoundWinner::Player2 => green(&format!("===== {} WINS =====", cfg.player2)),
     };
     println!("\n{}", banner_line);
 
     let p1_result = match winner {
-        RoundWinner::Player1 => green("WIN", cfg.use_color),
-        RoundWinner::Player2 => red("LOSS", cfg.use_color),
-        RoundWinner::Tie => yellow("TIE", cfg.use_color),
+        RoundWinner::Player1 => green("WIN"),
+        RoundWinner::Player2 => red("LOSS"),
+        RoundWinner::Tie => yellow("TIE"),
     };
     let p2_result = match winner {
-        RoundWinner::Player2 => green("WIN", cfg.use_color),
-        RoundWinner::Player1 => red("LOSS", cfg.use_color),
-        RoundWinner::Tie => yellow("TIE", cfg.use_color),
+        RoundWinner::Player2 => green("WIN"),
+        RoundWinner::Player1 => red("LOSS"),
+        RoundWinner::Tie => yellow("TIE"),
     };
 
     println!(
@@ -1033,16 +994,16 @@ fn show_victory(state: &MatchState, winner: RoundWinner) {
     println!("Match Complete!\n");
 
     match winner {
-        RoundWinner::Tie => println!("{}", yellow("It ended in a tie.", cfg.use_color)),
-        RoundWinner::Player1 => println!("{}", green(&format!("Winner: {}", cfg.player1), cfg.use_color)),
-        RoundWinner::Player2 => println!("{}", green(&format!("Winner: {}", cfg.player2), cfg.use_color)),
+        RoundWinner::Tie => println!("{}", yellow("It ended in a tie.")),
+        RoundWinner::Player1 => println!("{}", green(&format!("Winner: {}", cfg.player1))),
+        RoundWinner::Player2 => println!("{}", green(&format!("Winner: {}", cfg.player2))),
     }
 
     let final_score = format!(
         "Final Score: {} {} - {} {}",
         cfg.player1, state.p1_round_wins, state.p2_round_wins, cfg.player2
     );
-    println!("\n{}", cyan(&final_score, cfg.use_color));
+    println!("\n{}", cyan(&final_score));
 }
 
 fn check_match_winner(state: &MatchState) -> Option<RoundWinner> {
