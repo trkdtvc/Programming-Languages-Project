@@ -20,8 +20,9 @@ fn main() {
         println!("2) Continue the saved game");
         println!("3) View the scoreboard");
         println!("4) Exit");
+        println!("5) Reset match history + scoreboard");
 
-        match read_menu_choice(1, 4) {
+        match read_menu_choice(1, 5) {
             1 => {
                 let config = new_game_setup();
                 let mut state = MatchState::new(config);
@@ -44,9 +45,20 @@ fn main() {
                 println!("\nGoodbye.");
                 break;
             }
+            5 => {
+                reset_all_data();
+                scoreboard = Scoreboard::default();
+                println!("\nAll data reset (save + scoreboard).");
+                pause();
+            }
             _ => {}
         }
     }
+}
+
+fn reset_all_data() {
+    let _ = std::fs::remove_file(SAVE_FILE);
+    let _ = std::fs::remove_file(SCORE_FILE);
 }
 
 fn banner() {
@@ -62,7 +74,7 @@ fn clear_screen() {
 }
 
 fn pause() {
-    println!("\nPress Enter to continue");
+    println!("\nPress Enter to go back.");
     let mut s = String::new();
     let _ = io::stdin().read_line(&mut s);
 }
@@ -165,13 +177,7 @@ impl Move {
     fn all_for_ruleset(r: Ruleset) -> Vec<Move> {
         match r {
             Ruleset::Classic => vec![Move::Rock, Move::Paper, Move::Scissors],
-            Ruleset::Extended => vec![
-                Move::Rock,
-                Move::Paper,
-                Move::Scissors,
-                Move::Lizard,
-                Move::Spock,
-            ],
+            Ruleset::Extended => vec![Move::Rock, Move::Paper, Move::Scissors, Move::Lizard, Move::Spock],
         }
     }
 }
@@ -307,9 +313,7 @@ impl Scoreboard {
     }
 
     fn ensure_player(&mut self, name: &str) {
-        self.players
-            .entry(name.to_string())
-            .or_insert_with(PlayerStats::default);
+        self.players.entry(name.to_string()).or_insert_with(PlayerStats::default);
     }
 
     fn add_match_result(
@@ -374,7 +378,8 @@ fn view_scoreboard(scoreboard: &Scoreboard) {
         banner();
 
         if scoreboard.players.is_empty() {
-            println!("Scoreboard is empty.");
+            println!("\nNo matches played yet.");
+            println!("Play some matches so that the score can be displayed.");
             pause();
             return;
         }
@@ -685,7 +690,7 @@ fn apply_round(state: &mut MatchState, p1: Move, p2: Move, winner: RoundWinner) 
     });
 }
 
-fn after_round_menu(state: &MatchState, scoreboard: &mut Scoreboard) {
+fn after_round_menu(_state: &MatchState, scoreboard: &mut Scoreboard) {
     loop {
         println!("\nOptions:");
         println!("1) Next round");
@@ -695,12 +700,7 @@ fn after_round_menu(state: &MatchState, scoreboard: &mut Scoreboard) {
 
         let opt = read_menu_choice(1, 4);
 
-        if opt == 2 {
-            view_match_history(state);
-            continue;
-        }
         if opt == 3 {
-            save_game(state, scoreboard);
             scoreboard.save();
             return;
         }
