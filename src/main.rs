@@ -991,19 +991,24 @@ fn view_match_history(state: &MatchState) {
 fn show_victory(state: &MatchState, winner: RoundWinner) {
     let cfg = &state.config;
 
-    println!("Match Complete!\n");
+    println!("Match complete.\n");
+
+    let final_score = format!(
+        "Final Score: {} {} - {} {}",
+        cfg.player1,
+        state.p1_round_wins,
+        state.p2_round_wins,
+        cfg.player2
+    );
+
+    println!("{}", cyan(&final_score));
+    println!();
 
     match winner {
         RoundWinner::Tie => println!("{}", yellow("It ended in a tie.")),
         RoundWinner::Player1 => println!("{}", green(&format!("Winner: {}", cfg.player1))),
         RoundWinner::Player2 => println!("{}", green(&format!("Winner: {}", cfg.player2))),
     }
-
-    let final_score = format!(
-        "Final Score: {} {} - {} {}",
-        cfg.player1, state.p1_round_wins, state.p2_round_wins, cfg.player2
-    );
-    println!("\n{}", cyan(&final_score));
 }
 
 fn check_match_winner(state: &MatchState) -> Option<RoundWinner> {
