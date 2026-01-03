@@ -81,7 +81,7 @@ fn welcome_screen() {
 
     println!("Welcome to the Rock, Paper, Scissors game.");
     println!();
-    println!("Press Enter to continue to the main menu.");
+    println!("Press Enter to continue.");
 
     let mut s = String::new();
     let _ = io::stdin().read_line(&mut s);
@@ -537,8 +537,6 @@ fn new_game_setup() -> GameConfig {
             ("Computer".to_string(), Some(diff))
         }
         Mode::Multiplayer => {
-            
-
             let p2 = loop {
                 let s = read_line("Player 2 name: ");
                 if !s.is_empty() && s != player1 {
@@ -633,15 +631,15 @@ fn run_match(state: &mut MatchState, scoreboard: &mut Scoreboard) {
                 }
             } else {
                 let display_round = if state.history.is_empty() {
-    state.round_number
-} else {
-    state.round_number + 1
-};
+                    state.round_number
+                } else {
+                    state.round_number + 1
+                };
 
-println!("1) Continue to round {}", display_round);
-
+                println!("1) Continue to round {}", display_round);
                 println!("2) Save now (return to main menu)");
                 println!("3) Return to main menu without saving");
+
                 let pre = read_menu_choice(1, 3);
                 if pre == 2 {
                     save_game(state, scoreboard);
@@ -710,7 +708,6 @@ println!("1) Continue to round {}", display_round);
                     print_round_summary(state, p1, p2, winner);
 
                     if let Some(match_winner) = check_match_winner(state) {
-                        pause();
                         let action = handle_match_end(state, scoreboard, match_winner);
                         match action {
                             AfterMatchAction::ContinueMatch => continue,
@@ -765,10 +762,8 @@ println!("1) Continue to round {}", display_round);
 
                             clear_screen();
                             println!();
-
                             println!("{} locked in.", state.config.player1);
                             println!();
-
                             println!("Press Enter to pass to {}.", state.config.player2);
 
                             let mut s = String::new();
@@ -804,13 +799,10 @@ println!("1) Continue to round {}", display_round);
 
                             clear_screen();
                             println!();
-
                             println!("{} locked in.", state.config.player2);
                             println!();
-
                             println!("Both moves are locked in.");
                             println!();
-
                             println!("Press Enter to reveal the result.");
 
                             let mut s = String::new();
@@ -830,9 +822,6 @@ println!("1) Continue to round {}", display_round);
                     pending_p2 = None;
 
                     if let Some(match_winner) = check_match_winner(state) {
-                        if !matches!(state.config.format, MatchFormat::SingleRound) {
-                            pause();
-                        }
                         let action = handle_match_end(state, scoreboard, match_winner);
                         match action {
                             AfterMatchAction::MainMenu => return,
@@ -904,7 +893,7 @@ fn after_round_menu(state: &MatchState) -> AfterRoundAction {
                             RoundWinner::Tie => "Tie",
                         };
                         println!(
-                            "Round {}: {} vs {}  ->  {}",
+                            "Round {}: {} v. {}  ->  {}",
                             r.round,
                             r.p1_move.name(),
                             r.p2_move.name(),
@@ -929,26 +918,6 @@ fn handle_match_end(
 ) -> AfterMatchAction {
     clear_screen();
 
-   
-
-
-    let winner_name = match match_winner {
-        RoundWinner::Player1 => Some(state.config.player1.as_str()),
-        RoundWinner::Player2 => Some(state.config.player2.as_str()),
-        RoundWinner::Tie => None,
-    };
-
-    scoreboard.add_match_result(
-        &state.config.player1,
-        &state.config.player2,
-        winner_name,
-        state.p1_round_wins,
-        state.p2_round_wins,
-    );
-    scoreboard.save();
-    clear_saved_game();
-
-    if matches!(state.config.format, MatchFormat::SingleRound) {
     if let Some(last) = state.history.last() {
         println!("{} chose: {}", state.config.player1, last.p1_move.name());
         println!("{}", ascii_move(last.p1_move));
@@ -956,7 +925,6 @@ fn handle_match_end(
         println!("{} chose: {}", state.config.player2, last.p2_move.name());
         println!("{}", ascii_move(last.p2_move));
     }
-}
 
     println!("Match complete.\n");
 
@@ -979,6 +947,22 @@ fn handle_match_end(
             green(&format!("Winner: {}", state.config.player2))
         ),
     }
+
+    let winner_name = match match_winner {
+        RoundWinner::Player1 => Some(state.config.player1.as_str()),
+        RoundWinner::Player2 => Some(state.config.player2.as_str()),
+        RoundWinner::Tie => None,
+    };
+
+    scoreboard.add_match_result(
+        &state.config.player1,
+        &state.config.player2,
+        winner_name,
+        state.p1_round_wins,
+        state.p2_round_wins,
+    );
+    scoreboard.save();
+    clear_saved_game();
 
     loop {
         println!("Post match:");
@@ -1025,6 +1009,7 @@ fn handle_match_end(
         }
     }
 }
+
 
 fn change_ruleset_and_format(cfg: &mut GameConfig) {
     clear_screen();
@@ -1110,7 +1095,7 @@ fn print_match_header(state: &MatchState) {
     println!("        Match Details");
     println!("==============================\n");
 
-    println!("Players:        {} vs {}", cfg.player1, cfg.player2);
+    println!("Players:        {} v. {}", cfg.player1, cfg.player2);
     println!("Ruleset:        {}", ruleset);
     println!("Format:         {}", fmt_line);
     if let Some(d) = diff_line {
@@ -1162,71 +1147,39 @@ fn print_match_header(state: &MatchState) {
 fn print_round_summary(state: &MatchState, p1: Move, p2: Move, winner: RoundWinner) {
     let cfg = &state.config;
 
-    let hide_details = matches!(cfg.format, MatchFormat::SingleRound)
-        || (state.round_number == 1
-            && state.history.len() == 1
-            && check_match_winner(state).is_some());
-
-    if !hide_details {
-        println!("Round {}", state.round_number);
-        println!();
-    }
-
     println!("{} chose: {}", cfg.player1, p1.name());
     println!("{}", ascii_move(p1));
 
     println!("{} chose: {}", cfg.player2, p2.name());
     println!("{}", ascii_move(p2));
 
-    let banner_line = match winner {
-        RoundWinner::Tie => yellow("===== TIE ROUND ====="),
-        RoundWinner::Player1 => green(&format!("===== {} WINS =====", cfg.player1)),
-        RoundWinner::Player2 => green(&format!("===== {} WINS =====", cfg.player2)),
-    };
-    println!("\n{}", banner_line);
+    let round_winner_line = match winner {
+    RoundWinner::Tie => yellow("Round winner: Nobody (it's a tie)"),
+    RoundWinner::Player1 => green(&format!("Round winner: {}", cfg.player1)),
+    RoundWinner::Player2 => green(&format!("Round winner: {}", cfg.player2)),
+};
 
-    if !hide_details {
-        let p1_result = match winner {
-            RoundWinner::Player1 => green("WIN"),
-            RoundWinner::Player2 => red("LOSS"),
-            RoundWinner::Tie => yellow("TIE"),
-        };
-        let p2_result = match winner {
-            RoundWinner::Player2 => green("WIN"),
-            RoundWinner::Player1 => red("LOSS"),
-            RoundWinner::Tie => yellow("TIE"),
-        };
+println!("{}", round_winner_line);
 
-        println!(
-            "{}: {}   |   {}: {}",
-            cfg.player1, p1_result, cfg.player2, p2_result
-        );
 
-        println!(
-            "\nCurrent Score: {} {} - {} {}",
-            cfg.player1, state.p1_round_wins, state.p2_round_wins, cfg.player2
-        );
+    println!(
+        "Current Score: {} {} - {} {}",
+        cfg.player1, state.p1_round_wins, state.p2_round_wins, cfg.player2
+    );
 
-        match cfg.format {
-            MatchFormat::BestOfN(n) => {
-                let needed = n / 2 + 1;
-                let p1_left = needed.saturating_sub(state.p1_round_wins);
-                let p2_left = needed.saturating_sub(state.p2_round_wins);
-                println!(
-                    "Wins to go: {} {}, {} {}",
-                    cfg.player1, p1_left, cfg.player2, p2_left
-                );
-            }
-            MatchFormat::FirstToK(k) => {
-                let p1_left = k.saturating_sub(state.p1_round_wins);
-                let p2_left = k.saturating_sub(state.p2_round_wins);
-                println!(
-                    "Wins to go: {} {}, {} {}",
-                    cfg.player1, p1_left, cfg.player2, p2_left
-                );
-            }
-            MatchFormat::SingleRound => {}
+    match cfg.format {
+        MatchFormat::BestOfN(n) => {
+            let needed = n / 2 + 1;
+            let p1_left = needed.saturating_sub(state.p1_round_wins);
+            let p2_left = needed.saturating_sub(state.p2_round_wins);
+            println!("Wins to go: {} {}, {} {}", cfg.player1, p1_left, cfg.player2, p2_left);
         }
+        MatchFormat::FirstToK(k) => {
+            let p1_left = k.saturating_sub(state.p1_round_wins);
+            let p2_left = k.saturating_sub(state.p2_round_wins);
+            println!("Wins to go: {} {}, {} {}", cfg.player1, p1_left, cfg.player2, p2_left);
+        }
+        MatchFormat::SingleRound => {}
     }
 }
 
