@@ -521,32 +521,15 @@ fn new_game_setup() -> GameConfig {
         println!("Name can't be empty.");
     };
 
-    let (player2, difficulty) = match mode {
-        Mode::SinglePlayer => {
-            println!("\nDifficulty:");
-            println!("1) Easy");
-            println!("2) Normal");
-            println!("3) Hard");
-
-            let diff = match read_menu_choice(1, 3) {
-                1 => Difficulty::Easy,
-                2 => Difficulty::Normal,
-                _ => Difficulty::Hard,
-            };
-
-            ("Computer".to_string(), Some(diff))
-        }
-        Mode::Multiplayer => {
-            let p2 = loop {
-                let s = read_line("Player 2 name: ");
-                if !s.is_empty() && s != player1 {
-                    break s;
-                }
-                println!("Name can't be empty and must be different from Player 1.");
-            };
-
-            (p2, None)
-        }
+    let player2 = match mode {
+        Mode::SinglePlayer => "Computer".to_string(),
+        Mode::Multiplayer => loop {
+            let s = read_line("Player 2 name: ");
+            if !s.is_empty() && s != player1 {
+                break s;
+            }
+            println!("Name can't be empty and must be different from Player 1.");
+        },
     };
 
     println!("\nRuleset:");
@@ -589,6 +572,23 @@ fn new_game_setup() -> GameConfig {
             };
             MatchFormat::FirstToK(k)
         }
+    };
+
+    let difficulty = match mode {
+        Mode::SinglePlayer => {
+            println!("\nDifficulty:");
+            println!("1) Easy");
+            println!("2) Normal");
+            println!("3) Hard");
+
+            let diff = match read_menu_choice(1, 3) {
+                1 => Difficulty::Easy,
+                2 => Difficulty::Normal,
+                _ => Difficulty::Hard,
+            };
+            Some(diff)
+        }
+        Mode::Multiplayer => None,
     };
 
     GameConfig {
@@ -851,7 +851,6 @@ fn run_match(state: &mut MatchState, scoreboard: &mut Scoreboard) {
     }
 }
 
-
 fn apply_round(state: &mut MatchState, p1: Move, p2: Move, winner: RoundWinner) {
     match winner {
         RoundWinner::Player1 => state.p1_round_wins += 1,
@@ -926,10 +925,10 @@ fn handle_match_end(
         println!("{}", ascii_move(last.p2_move));
     }
 
-    println!("Match complete.\n");
+    println!("Match complete.");
 
     println!(
-        "Final Score: {} {} - {} {}\n",
+        "Final Score: {} {} - {} {}",
         state.config.player1,
         state.p1_round_wins,
         state.p2_round_wins,
@@ -937,15 +936,9 @@ fn handle_match_end(
     );
 
     match match_winner {
-        RoundWinner::Tie => println!("{}\n", yellow("It ended in a tie.")),
-        RoundWinner::Player1 => println!(
-            "{}\n",
-            green(&format!("Winner: {}", state.config.player1))
-        ),
-        RoundWinner::Player2 => println!(
-            "{}\n",
-            green(&format!("Winner: {}", state.config.player2))
-        ),
+        RoundWinner::Tie => println!("{}", yellow("It ended in a tie.")),
+        RoundWinner::Player1 => println!("{}", green(&format!("Winner: {}", state.config.player1))),
+        RoundWinner::Player2 => println!("{}", green(&format!("Winner: {}", state.config.player2))),
     }
 
     let winner_name = match match_winner {
@@ -965,7 +958,7 @@ fn handle_match_end(
     clear_saved_game();
 
     loop {
-        println!("Post match:");
+        println!("\nPost match:");
         println!("1) Rematch (same settings)");
         println!("2) Change ruleset / format (then rematch)");
         if matches!(state.config.mode, Mode::SinglePlayer) {
@@ -1010,7 +1003,6 @@ fn handle_match_end(
     }
 }
 
-
 fn change_ruleset_and_format(cfg: &mut GameConfig) {
     clear_screen();
 
@@ -1054,6 +1046,7 @@ fn change_ruleset_and_format(cfg: &mut GameConfig) {
         }
     };
 }
+
 
 fn change_difficulty(cfg: &mut GameConfig) {
     clear_screen();
@@ -1154,13 +1147,12 @@ fn print_round_summary(state: &MatchState, p1: Move, p2: Move, winner: RoundWinn
     println!("{}", ascii_move(p2));
 
     let round_winner_line = match winner {
-    RoundWinner::Tie => yellow("Round winner: Nobody (it's a tie)"),
-    RoundWinner::Player1 => green(&format!("Round winner: {}", cfg.player1)),
-    RoundWinner::Player2 => green(&format!("Round winner: {}", cfg.player2)),
-};
+        RoundWinner::Tie => yellow("Round winner: Nobody (it's a tie)"),
+        RoundWinner::Player1 => green(&format!("Round winner: {}", cfg.player1)),
+        RoundWinner::Player2 => green(&format!("Round winner: {}", cfg.player2)),
+    };
 
-println!("{}", round_winner_line);
-
+    println!("{}", round_winner_line);
 
     println!(
         "Current Score: {} {} - {} {}",
