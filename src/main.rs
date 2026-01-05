@@ -59,6 +59,8 @@ fn main() {
             3 => view_scoreboard(&scoreboard),
             4 => {
                 reset_all_data();
+                scoreboard = Scoreboard::default();
+    scoreboard.save();
 
                 clear_screen();
                 println!("All data reset (save + scoreboard).");
